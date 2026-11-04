@@ -1,0 +1,22 @@
+{
+  "name": "gls-fints",
+  "version": "0.0.1",
+  "description": "Imports transactions from FinTS to Actual",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "jonesmonez",
+  "license": "ISC",
+  "devDependencies": {
+    "@actual-app/cli": "^26.9.0"
+  },
+  "dependencies": {
+    "@actual-app/api": "^26.11.0",
+    "@schroeer-haren/lib-fints": "^1.5.1",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "lib-fints": "^1.5.0"
+  }
+}
