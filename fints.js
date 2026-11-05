@@ -1,6 +1,9 @@
 import { FinTSClient, FinTSConfig } from '@schroeer-haren/lib-fints';
 // import { FinTSClient, FinTSConfig } from 'lib-fints';
 
+import { getLogger } from './logger.js';
+const log = getLogger('fints');
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export class FinTSHandler {
@@ -65,19 +68,21 @@ export class FinTSHandler {
 
         await this.#processRespone(
             await this.client.synchronize(),
-            ref => this.client.synchronizeWithTan(ref)
+            ref => this.client.synchronizeWithTan(ref),
+            'Login'
         );
 
         this.#selectTanMethod();
 
         await this.#processRespone(
             await this.client.synchronize(),
-            ref => this.client.synchronizeWithTan(ref)
+            ref => this.client.synchronizeWithTan(ref),
+            'Login'
         );
 
         this.bank_name = this.getBank();
 
-        console.log('FinTS connected')
+        log.info('FinTS connected')
 
         if (!bankConn) {
             await this.saveCallback(this.#config.bankingInformation);
@@ -121,21 +126,13 @@ export class FinTSHandler {
         return this.bankAbr;
     }
 
-    async getAccounts() {
-        this.#checkConnection();
-        let response = await this.client.config.bankingInformation.upd.bankAccounts;
-        return response;
-    }
-
-    async #processRespone(response, withTan) {
+    async #processRespone(response, withTan, reason) {
         if (!response) {
             throw new Error('Empty FinTS response');
         }
 
         if (response.requiresTan) {
-            response = await this.#handleDecoupledTan(
-                response, withTan
-            );
+            response = await this.#handleDecoupledTan(response, withTan, reason);
         }
 
         if (!response?.success || response.requiresTan) {
@@ -154,27 +151,7 @@ export class FinTSHandler {
         return this.#saveBankingInformation(response);
     }
 
-    async getBalance(account) {
-        this.#checkConnection();
-        const response = await this.client.getAccountBalance(account.accountNumber);
-
-        return this.#processRespone(
-            response,
-            ref => this.client.getAccountBalanceWithTan(ref)
-        );
-    }
-
-    async getStatements(account, from, to) {
-        this.#checkConnection();
-        const response = await this.client.getAccountStatements(account.accountNumber, from, to);
-
-        return this.#processRespone(
-            response,
-            ref => this.client.getAccountStatementsWithTan(ref)
-        );
-    }
-
-    async #handleDecoupledTan(initialResponse, withTan) {
+    async #handleDecoupledTan(initialResponse, withTan, reason) {
         let response = initialResponse;
         let tanReference = response.tanReference;
 
@@ -182,24 +159,21 @@ export class FinTSHandler {
             throw new Error('TAN required, but no tanReference was returned');
         }
 
-        let tanText;
+        let tanText = `${this.bankAbr} requires TAN approval for ${reason}: ${response.tanChallenge}`;
         if (response.tanMediaName) {
-            tanText = `${this.bankAbr} requires TAN approval: ${response.tanChallenge} (${response.tanMediaName})`;
-        } else {
-            tanText = `${this.bankAbr} requires TAN approval: ${response.tanChallenge}`;
+            tanText += ` (${response.tanMediaName})`;
         }
 
-        console.log(tanText);
+        log.info(tanText);
 
         for (let poll = 1; poll <= this.tanMaxPolls; poll++) {
             const progress = Math.round((poll / this.tanMaxPolls) * 100);
             const barLength = 40;
             const filled = Math.round((progress / 100) * barLength);
-
             const padding = Math.abs(this.tanMaxPolls).toString().length - Math.abs(poll).toString().length;
 
-            process.stdout.write(
-                `\rWaiting for approval [${'='.repeat(filled)}${' '.repeat(barLength - filled)}] ${'0'.repeat(padding)}${poll}/${this.tanMaxPolls}`
+            log.progress(
+                `Waiting for approval [${'='.repeat(filled)}${' '.repeat(barLength - filled)}] ${'0'.repeat(padding)}${poll}/${this.tanMaxPolls}`
             );
 
             await sleep(poll === 1 ? this.tanFirstPollWaitMs : this.tanPollIntervalMs);
@@ -214,11 +188,39 @@ export class FinTSHandler {
                 if (!response.success) {
                     throw new Error(`TAN approval/request failed for ${this.bankAbr}`);
                 }
-                process.stdout.write('\rApproval received!                                                                         \n');
+                log.endProgress('Approval received!');
                 return response;
             }
         }
         throw new Error('Confirmation timed out');
+    }
+
+    async getAccounts() {
+        this.#checkConnection();
+        let response = await this.client.config.bankingInformation.upd.bankAccounts;
+        return response;
+    }
+
+    async getBalance(account) {
+        this.#checkConnection();
+        const response = await this.client.getAccountBalance(account.accountNumber);
+
+        return this.#processRespone(
+            response,
+            ref => this.client.getAccountBalanceWithTan(ref),
+            'Balance'
+        );
+    }
+
+    async getStatements(account, from, to) {
+        this.#checkConnection();
+        const response = await this.client.getAccountStatements(account.accountNumber, from, to);
+
+        return this.#processRespone(
+            response,
+            ref => this.client.getAccountStatementsWithTan(ref),
+            'Transactions'
+        );
     }
 
     #checkConnection() {
@@ -229,7 +231,7 @@ export class FinTSHandler {
 
     async #saveBankingInformation(response) {
         if (response.bankingInformationUpdated) {
-            console.log('Updating saved banking informations');
+            log.debug('Updating saved banking informations');
             await this.saveCallback(this.#config.bankingInformation);
         }
         return response;

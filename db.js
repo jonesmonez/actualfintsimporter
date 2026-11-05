@@ -96,6 +96,15 @@ export class DatabaseHandler {
                 UNIQUE(account_id, transaction_id)
             );
 
+            CREATE TABLE IF NOT EXISTS simplefin_claim_tokens (
+                token_hash TEXT PRIMARY KEY,
+                expires_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS simplefin_access_credentials (
+                credential_hash TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS actual_budget (
                 id INTEGER PRIMARY KEY,
@@ -757,6 +766,43 @@ export class DatabaseHandler {
         if (result.changes !== 1) {
             throw new Error(`Unknown SQLite account: ${accountId}`);
         }
+    }
+
+    createSimpleFinClaim(tokenHash, expiresAt) {
+        this.db.prepare(`
+            INSERT INTO simplefin_claim_tokens (token_hash, expires_at)
+            VALUES (?, ?)
+        `).run(tokenHash, expiresAt);
+    }
+
+    consumeSimpleFinClaim(tokenHash, credentialHash, nowSeconds) {
+        const claim = this.db.transaction(() => {
+            const deleted = this.db.prepare(`
+                DELETE FROM simplefin_claim_tokens
+                WHERE token_hash = ? AND expires_at >= ?
+            `).run(tokenHash, nowSeconds);
+            if (deleted.changes !== 1) return false;
+            this.db.prepare(`
+                INSERT INTO simplefin_access_credentials (credential_hash, created_at)
+                VALUES (?, ?)
+            `).run(credentialHash, nowSeconds);
+            return true;
+        });
+        return claim();
+    }
+
+    hasSimpleFinCredential(credentialHash) {
+        return Boolean(this.db.prepare(`
+            SELECT 1 FROM simplefin_access_credentials WHERE credential_hash = ?
+        `).get(credentialHash));
+    }
+
+    revokeSimpleFinCredentials() {
+        const revoke = this.db.transaction(() => {
+            this.db.prepare('DELETE FROM simplefin_claim_tokens').run();
+            return this.db.prepare('DELETE FROM simplefin_access_credentials').run().changes;
+        });
+        return revoke();
     }
 
     close() {
