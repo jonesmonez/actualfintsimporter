@@ -1,6 +1,7 @@
 import { fetchAllBanks } from './bank-sync.js';
 import { DatabaseHandler } from './db.js';
 import * as api from '@actual-app/api';
+import { getSecret } from './secrets.js';
 
 import { getLogger } from './logger.js';
 const log = getLogger('api-push');
@@ -332,26 +333,26 @@ async function waitForIncomingUpdate(
 }
 
 export async function apiPush() {
-    const db = new DatabaseHandler(process.env.DB_PATH || 'bank.db');
+    const db = new DatabaseHandler(process.env.DB_PATH || 'data/bank.db');
 
     let actualInitialized = false;
 
     try {
-        if (!process.env.ACTUAL_SYNC_ID || !process.env.ACTUAL_SERVER_URL || !process.env.ACTUAL_PASSWORD) {
+        if (!process.env.ACTUAL_SYNC_ID || !process.env.ACTUAL_SERVER_URL || !getSecret("ACTUAL_PASSWORD")) {
             throw new Error('ACTUAL_SYNC_ID, ACTUAL_SERVER_URL and ACTUAL_PASSWORD must be set');
         }
 
         await api.init({
             serverURL: process.env.ACTUAL_SERVER_URL,
-            password: process.env.ACTUAL_PASSWORD,
+            password: getSecret("ACTUAL_PASSWORD"),
             verbose: false,
             dataDir: './actual-data',
         });
 
         actualInitialized = true;
 
-        const options = process.env.ACTUAL_E2E
-            ? { password: process.env.ACTUAL_E2E }
+        const options = getSecret("ACTUAL_E2E")
+            ? { password: getSecret("ACTUAL_E2E") }
             : undefined;
 
         await api.downloadBudget(
@@ -402,8 +403,6 @@ export async function apiPush() {
                 log.warn(`Balance mismatch for account ${account.id}: ` + api.utils.integerToAmount(diff));
             }
         }
-    } catch (error) {
-        log.error(error);
     } finally {
         try {
             if (actualInitialized) {

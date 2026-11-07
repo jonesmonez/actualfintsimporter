@@ -1,0 +1,10 @@
+*.env
+*.env.*
+*.db*
+.git
+.gitignore
+Dockerfile
+actual-data/
+node_modules/
+tests/
+queries/

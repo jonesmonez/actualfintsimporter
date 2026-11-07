@@ -1,5 +1,6 @@
 import { FinTSHandler } from './fints.js';
 import * as api from '@actual-app/api';
+import { getSecret } from './secrets.js';
 
 import { getLogger } from './logger.js';
 const log = getLogger('bank-sync');
@@ -8,7 +9,7 @@ export function getCredentials(bank) {
     const bankName = bank.toUpperCase();
     const config = {
         user: process.env[`${bankName}_USR`],
-        pin: process.env[`${bankName}_PIN`],
+        pin: getSecret(`${bankName}_PIN`),
         blz: process.env[`${bankName}_BLZ`],
         url: process.env[`${bankName}_URL`],
         pid: process.env.FINTS_PRODUCT_ID,
@@ -36,7 +37,7 @@ function bankDate(value, label) {
 function getFetchPeriod(
     lastFetchedAt,
     overlapDays = 7,
-    initialDays = 365
+    initialDays = Number(process.env.FINTS_INITIAL_FETCH_DAYS ?? 365)
 ) {
     const to = new Date();
 

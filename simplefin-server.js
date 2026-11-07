@@ -2,6 +2,7 @@ import { DatabaseHandler } from './db.js';
 import { fetchAllBanks } from './bank-sync.js';
 import { createSimpleFinHttpServer } from './simplefin-http.js';
 import { RefreshManager } from './refresh-manager.js';
+import { getSecret } from './secrets.js';
 
 import { getLogger } from './logger.js';
 const log = getLogger('simplefin-sever');
@@ -16,7 +17,7 @@ function positiveIntegerEnv(name, defaultValue, min = 1, max = Number.MAX_SAFE_I
 
 export async function runSimpleFin() {
     const publicUrl = process.env.SIMPLEFIN_PUBLIC_URL;
-    const adminToken = process.env.SIMPLEFIN_ADMIN_TOKEN;
+    const adminToken = getSecret("SIMPLEFIN_ADMIN_TOKEN");
     if (!publicUrl || !adminToken) {
         throw new Error('SIMPLEFIN_PUBLIC_URL and SIMPLEFIN_ADMIN_TOKEN are required');
     }
@@ -26,6 +27,7 @@ export async function runSimpleFin() {
         throw new Error('For an HTTP bridge confined to a private network, set SIMPLEFIN_ALLOW_HTTP=true (otherwise use HTTPS)');
     }
 
+
     const port = positiveIntegerEnv('SIMPLEFIN_PORT', 3001, 1, 65535);
     const minAgeSeconds = positiveIntegerEnv('SIMPLEFIN_REFRESH_MIN_AGE_SECONDS', 60, 0);
     const waitMs = positiveIntegerEnv('SIMPLEFIN_ON_DEMAND_WAIT_MS', 20000, 1, 300000);
@@ -34,7 +36,7 @@ export async function runSimpleFin() {
         throw new Error('BANKS must contain at least one configured bank');
     }
 
-    const db = new DatabaseHandler(process.env.DB_PATH || 'bank.db');
+    const db = new DatabaseHandler(process.env.DB_PATH || 'data/bank.db');
     let refresh;
     let server;
 
@@ -58,6 +60,8 @@ export async function runSimpleFin() {
     if (url.protocol === 'http:') {
         log.warn('HTTP mode enabled: only use on a private, trusted Docker network. Never publish this port publicly.');
     }
+
+    void refresh.request({ force: true }).catch(() => { });
 
     let shuttingDown = false;
     async function shutdown() {

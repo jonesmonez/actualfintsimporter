@@ -6,8 +6,8 @@ import { runSimpleFin } from './simplefin-server.js';
 import { getLogger } from './logger.js';
 const log = getLogger();
 
-const mode = (process.env.SYNC_MODE ?? 'actual').toLowerCase();
-const entrypoint = mode === 'actual'
+const mode = (process.env.SYNC_MODE ?? 'simplefin').toLowerCase();
+const entrypoint = mode === 'apipush'
     ? apiPush
     : mode === 'simplefin'
         ? runSimpleFin

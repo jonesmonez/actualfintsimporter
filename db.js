@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 
 export class DatabaseHandler {
-    constructor(path = 'bank.db') {
+    constructor(path = 'data/bank.db') {
         this.db = new Database(path);
 
         this.db.pragma('journal_mode = WAL');

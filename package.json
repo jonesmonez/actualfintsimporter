@@ -1,6 +1,6 @@
 {
-  "name": "gls-fints",
-  "version": "0.0.1",
+  "name": "actualfintsimporter",
+  "version": "0.1.1",
   "description": "Imports transactions from FinTS to Actual",
   "main": "index.js",
   "type": "module",
