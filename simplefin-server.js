@@ -61,8 +61,6 @@ export async function runSimpleFin() {
         log.warn('HTTP mode enabled: only use on a private, trusted Docker network. Never publish this port publicly.');
     }
 
-    void refresh.request({ force: true }).catch(() => { });
-
     let shuttingDown = false;
     async function shutdown() {
         if (shuttingDown) return;

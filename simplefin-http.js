@@ -114,20 +114,28 @@ export function createSimpleFinHttpServer({ db, refresh, publicUrl, adminToken, 
             if (req.method === 'GET' && path === '/simplefin/accounts') {
                 if (!isAuthorized(res, req, db)) return;
 
-                const refreshed = await waitForRefresh(refresh.request(), waitMs);
-                const response = makeAccountSet(db, url.searchParams, publicUrl);
-                if (refreshed.status === 'failed') {
-                    response.errors.push('FinTS refresh failed. Cached banking data was returned.');
-                } else if (refreshed.status === 'updating') {
-                    response.errors.push('FinTS refresh is still running. Cached banking data was returned; sync again after TAN approval.');
+                const onlyBalance = url.searchParams.get('balances-only') === '1';
+
+                if (onlyBalance) {
+                    const resopnse = makeAccountSet(db, url.searchParams, publicUrl);
+                    return reply(
+                        res, 200, JSON.stringify(resopnse), 'application/json; charset=utf-8'
+                    );
                 }
 
-                if (!response.accounts.length) {
-                    response.errors.push('No cached bank accounts available yet. Check FinTS credentials and TAN approval.');
+                try {
+                    await refresh.request();
+                } catch (error) {
+                    log.error('FinTS synchronization failed:', error);
+
+                    return reply(res, 503, 'FinTS synchronization failed');
                 }
-                return reply(res, 200, JSON.stringify(response), 'application/json; charset=utf-8');
+
+                const resopnse = makeAccountSet(db, url.searchParams, publicUrl);
+
+                return reply(res, 200, JSON.stringify(resopnse), 'application/json; charset=utf-8');
             }
-            reply(res, 404, 'Not found');
+
         } catch (error) {
             if (error instanceof RangeError) {
                 return reply(res, 400, error.message);
