@@ -169,12 +169,8 @@ export class FinTSHandler {
         for (let poll = 1; poll <= this.tanMaxPolls; poll++) {
             const progress = Math.round((poll / this.tanMaxPolls) * 100);
             const barLength = 40;
-            const filled = Math.round((progress / 100) * barLength);
-            const padding = Math.abs(this.tanMaxPolls).toString().length - Math.abs(poll).toString().length;
 
-            log.progress(
-                `Waiting for approval [${'='.repeat(filled)}${' '.repeat(barLength - filled)}] ${'0'.repeat(padding)}${poll}/${this.tanMaxPolls}`
-            );
+            log.progress('Waiting for TAN approval', poll, this.tanMaxPolls);
 
             await sleep(poll === 1 ? this.tanFirstPollWaitMs : this.tanPollIntervalMs);
             response = await withTan(tanReference);
