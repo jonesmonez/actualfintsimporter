@@ -1,4 +1,8 @@
 import Database from 'better-sqlite3';
+import migrations from './migrations/index.js';
+
+import { getLogger } from './logger.js';
+const log = getLogger('database');
 
 export class DatabaseHandler {
     constructor(path = 'data/bank.db') {
@@ -11,110 +15,55 @@ export class DatabaseHandler {
     }
 
     initialize() {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS bank_connections (
-                id INTEGER PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                bank_id TEXT NOT NULL,
-                bank_name TEXT,
-                bank_abr TEXT NOT NULL,
-                banking_information TEXT,
-                updated_at TEXT NOT NULL,
-                account_group_id INTEGER,
+        this.runMigrations(migrations);
+    }
 
-                UNIQUE (user_id, bank_id)
-            );
+    getDbVersion() {
+        const version = this.db.pragma('user_version', { simple: true });
+        return version;
+    }
 
-            
-            CREATE TABLE IF NOT EXISTS accounts (
-                id INTEGER PRIMARY KEY,
+    setDbVersion(version) {
+        if (version < 0) {
+            throw new Error('Database version can`t be negative');
+        }
+        this.db.pragma(`user_version = ${version}`);
+    }
 
-                connection_id INTEGER NOT NULL,
-                account_number TEXT NOT NULL,
+    getPendingMigrations(migrations) {
+        const version = this.getDbVersion();
 
-                iban TEXT NOT NULL,
-                name TEXT NOT NULL,
-                actual_id TEXT,
-                currency TEXT NOT NULL,
-                balance INTEGER NOT NULL,
+        if (migrations.length === 0) {
+            if (version === 0) return [];
+            throw new Error('Database version is ahead of available migrations');
+        }
 
-                bank_country INTEGER,
-                bank_id TEXT,
-                bic TEXT,
+        const latestVersion = Math.max(...migrations.map(migration => migration.version));
 
-                customer_id TEXT,
-                account_type TEXT,
-                holder1 TEXT,
-                product TEXT,
-                allowed_transactions TEXT,
-                is_sepa_account INTEGER,
+        if (latestVersion < version) {
+            throw new Error('Database version is ahead of available migrations');
+        }
 
-                last_fetched_at TEXT,
-                opening_balance_pending INTEGER NOT NULL DEFAULT 0,
+        const sortedMigrations = [...migrations].sort((a, b) => a.version - b.version).filter(migration => migration.version > version);
+        return sortedMigrations;
+    }
 
-                FOREIGN KEY(connection_id)
-                    REFERENCES bank_connections(id),
-
-                UNIQUE(connection_id, account_number),
-                UNIQUE(actual_id)
-            );
-
-
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY,
-
-                account_id INTEGER NOT NULL,
-                transaction_id TEXT NOT NULL,
-
-                entry_date TEXT,
-                value_date TEXT,
-                amount INTEGER NOT NULL,
-
-                counterparty TEXT,
-                counterparty_name TEXT,
-                purpose TEXT,
-
-                funds_code TEXT,
-                transaction_type TEXT,
-                customer_reference TEXT,
-                bank_reference TEXT,
-                transaction_code TEXT,
-                remote_name TEXT,
-                remote_account_number TEXT,
-                remote_bank_id TEXT,
-                e2e_reference TEXT,
-                mandate_reference TEXT,
-                additional_information TEXT,
-                booking_text TEXT,
-
-                pending INTEGER NOT NULL DEFAULT 0,
-                imported INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-                FOREIGN KEY(account_id)
-                    REFERENCES accounts(id),
-                UNIQUE(account_id, transaction_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS simplefin_claim_tokens (
-                token_hash TEXT PRIMARY KEY,
-                expires_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS simplefin_access_credentials (
-                credential_hash TEXT PRIMARY KEY,
-                created_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS actual_budget (
-                id INTEGER PRIMARY KEY,
-                sync_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-
-                UNIQUE(sync_id),
-                UNIQUE(name)
-            );
-        `)
+    runMigrations(migrations) {
+        const pendingMigrations = this.getPendingMigrations(migrations);
+        for (const migration of pendingMigrations) {
+            const transaction = this.db.transaction(() => {
+                migration.up(this.db);
+                this.setDbVersion(migration.version);
+            });
+            try {
+                transaction();
+                log.info(`Applied migration ${migration.version}`);
+            } catch (error) {
+                log.error(`Migration ${migration.version} failed:`, error);
+                throw new Error('Database migration failed!');
+            }
+        }
+        log.info(`Database version is now ${this.getDbVersion()}`);
     }
 
     createBankConnection(bankConfig) {
@@ -300,18 +249,6 @@ export class DatabaseHandler {
         );
     }
 
-    saveAccountIdToAccount({
-        connectionId,
-        accountNumber,
-        accountId,
-    }) {
-        const result = this.db.prepare(`
-            UPDATE accounts
-            SET actual_id = ?
-            WHERE connection_id = ? AND account_number = ?;
-        `).run(accountId, connectionId, accountNumber);
-    }
-
     getAccounts() {
         const accounts = this.db.prepare(`
             SELECT
@@ -324,13 +261,6 @@ export class DatabaseHandler {
                 ON bank_connections.id = accounts.connection_id;
         `).all();
         return accounts;
-    }
-
-    getAccountIbans() {
-        const ibans = this.db.prepare(`
-            SELECT iban FROM accounts;
-        `).all();
-        return ibans.map(iban => iban.iban);
     }
 
     getAccountBalance(accountId) {
@@ -361,11 +291,6 @@ export class DatabaseHandler {
         return this.db.prepare(`
             SELECT * FROM accounts WHERE connection_id = ? AND account_number = ?;
         `).get(connectionId, accountNumber);
-    }
-
-    getAccountId(connectionId, accountNumber) {
-        const account = this.getAccount(connectionId, accountNumber);
-        return account.id;
     }
 
     saveTransaction(transaction) {
@@ -686,31 +611,6 @@ export class DatabaseHandler {
                 p.outgoing_row_id;
         `).all();
         return results;
-    }
-
-    saveSyncId(syncID, name) {
-        return this.db.prepare(`
-            INSERT INTO actual_budget (
-                sync_id,
-                name
-            )
-            VALUES (?, ?)
-
-            ON CONFLICT(sync_id)
-            DO NOTHING
-        `).run(syncID, name);
-    }
-
-    getSyncId(name) {
-        return this.db.prepare(`
-            SELECT * FROM actual_budget WHERE name = ?
-        `).get(name);
-    }
-
-    deleteSyncId(sync_id) {
-        return this.db.prepare(`
-            DELETE FROM actual_budget WHERE sync_id = ?
-        `).run(sync_id);
     }
 
     getLastFetchedAt(accountId) {
