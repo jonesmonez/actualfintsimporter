@@ -19,7 +19,7 @@ WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
 
-COPY --chown=node:node . .
+COPY --chown=node:node ./src .
 
 RUN mkdir -p /app/data && mkdir -p /app/actual-data && mkdir -p /run/secrets && chown -R node:node /app
 
