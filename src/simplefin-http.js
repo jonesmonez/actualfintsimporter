@@ -46,7 +46,7 @@ function isAuthorized(res, req, db) {
     return true;
 }
 
-export function createSimpleFinHttpServer({ db, refresh, publicUrl, adminToken, waitMs = 20000 }) {
+export function createSimpleFinHttpServer({ db, syncSelected, publicUrl, adminToken, waitMs = 20000 }) {
     if (!adminToken || adminToken.length < 24) {
         throw new Error('SIMPLEFIN_ADMIN_TOKEN must contain at least 24 random characters');
     }
@@ -117,23 +117,29 @@ export function createSimpleFinHttpServer({ db, refresh, publicUrl, adminToken, 
                 const onlyBalance = url.searchParams.get('balances-only') === '1';
 
                 if (onlyBalance) {
-                    const resopnse = makeAccountSet(db, url.searchParams, publicUrl);
+                    const response = makeAccountSet(db, url.searchParams, publicUrl);
                     return reply(
-                        res, 200, JSON.stringify(resopnse), 'application/json; charset=utf-8'
+                        res, 200, JSON.stringify(response), 'application/json; charset=utf-8'
                     );
                 }
 
-                try {
-                    await refresh.request();
-                } catch (error) {
-                    log.error('FinTS synchronization failed:', error);
-
-                    return reply(res, 503, 'FinTS synchronization failed');
+                let accountIds = url.searchParams.getAll('account');
+                if (accountIds.length === 0) {
+                    accountIds = db.getAccounts().map(account => account.simplefin_id);
                 }
 
-                const resopnse = makeAccountSet(db, url.searchParams, publicUrl);
+                const promises = accountIds.map(id => syncSelected(id));
+                const results = await Promise.allSettled(promises);
+                const response = makeAccountSet(db, url.searchParams, publicUrl);
+                results.forEach((res, index) => {
+                    if (res.status === 'rejected') {
+                        const id = accountIds[index];
+                        log.error(`Failed to synchronize account ${id}`, res.reason);
+                        response.errors.push(`Failed to synchronize account ${id}. Cached data may be outdated.`);
+                    }
+                })
 
-                return reply(res, 200, JSON.stringify(resopnse), 'application/json; charset=utf-8');
+                return reply(res, 200, JSON.stringify(response), 'application/json; charset=utf-8');
             }
 
         } catch (error) {

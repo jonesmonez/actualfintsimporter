@@ -48,7 +48,7 @@ export function makeAccountSet(db, params, bridgeUrl) {
     const onlyBalances = params.get('balances-only') === '1';
     const includePending = params.get('pending') === '1';
     const accounts = db.getAccounts()
-        .filter(account => !includedIds || includedIds.has(`fints-${account.id}`))
+        .filter(account => !includedIds || includedIds.has(account.simplefin_id))
         .map(account => {
             const cachedDate = account.last_fetched_at
                 ? Math.floor(new Date(account.last_fetched_at).getTime() / 1000)
@@ -64,13 +64,12 @@ export function makeAccountSet(db, params, bridgeUrl) {
 
             return {
                 org: {
-                    name: account.bank_name || account.bank_abr || 'FinTS bank',
+                    name: account.bankName || account.bankAbr || 'FinTS bank',
                     id: `fints-bank-${account.connection_id}`,
                     'sfin-url': bridgeUrl,
                 },
-                id: `fints-${account.id}`,
-                // name: `${account.name} (${String(account.iban).slice(-4)})`,
-                name: `${account.name} (${account.bank_abr} • ${String(account.iban).slice(-4)})`,
+                id: account.simplefin_id,
+                name: `${account.name} (${account.bankAbr} • ${String(account.iban).slice(-4)})`,
                 currency: account.currency,
                 balance: centsToDecimal(account.balance),
                 'balance-date': Number.isFinite(cachedDate) ? cachedDate : Math.floor(Date.now() / 1000),

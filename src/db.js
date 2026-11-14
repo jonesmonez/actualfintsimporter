@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import migrations from './migrations/index.js';
+import { randomUUID } from 'node:crypto';
 
 import { getLogger } from './logger.js';
 const log = getLogger('database');
@@ -118,8 +119,8 @@ export class DatabaseHandler {
                 id,
                 user_id AS user,
                 bank_id AS blz,
-                bank_name,
-                bank_abr,
+                bank_name AS bankName,
+                bank_abr AS bankAbr,
                 banking_information,
                 updated_at,
                 account_group_id
@@ -145,8 +146,8 @@ export class DatabaseHandler {
                 id,
                 user_id AS user,
                 bank_id AS blz,
-                bank_name,
-                bank_abr,
+                bank_name AS bankName,
+                bank_abr AS bankAbr,
                 banking_information,
                 updated_at,
                 account_group_id
@@ -181,6 +182,31 @@ export class DatabaseHandler {
         return connection.id;
     }
 
+    getBankConnectionByAccount(account) {
+        const connection = this.db.prepare(`
+            SELECT
+                id,
+                user_id AS user,
+                bank_id AS blz,
+                bank_name AS bankName,
+                bank_abr AS bankAbr,
+                banking_information,
+                updated_at,
+                account_group_id
+            FROM bank_connections WHERE id = ?;
+        `).get(account.connection_id);
+
+        if (!connection) {
+            throw new Error(`Bank connection for ${account} does not exist`);
+        }
+
+        if (connection.banking_information) {
+            connection.banking_information = JSON.parse(connection.banking_information);
+        }
+
+        return connection;
+    }
+
     saveAccount(account) {
         return this.db.prepare(`
             INSERT INTO accounts (
@@ -199,11 +225,12 @@ export class DatabaseHandler {
                 product,
                 allowed_transactions,
                 is_sepa_account,
-                bic
+                bic,
+                simplefin_id
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
 
             ON CONFLICT(connection_id, account_number)
@@ -245,15 +272,16 @@ export class DatabaseHandler {
             account.is_sepa_account == null
                 ? null
                 : Number(account.is_sepa_account),
-            account.bic ?? null
+            account.bic ?? null,
+            randomUUID()
         );
     }
 
     getAccounts() {
         const accounts = this.db.prepare(`
             SELECT
-                bank_connections.bank_name,
-                bank_connections.bank_abr,
+                bank_connections.bank_name AS bankName,
+                bank_connections.bank_abr AS bankAbr,
                 bank_connections.account_group_id,
                 accounts.*
             FROM accounts
@@ -277,8 +305,8 @@ export class DatabaseHandler {
         const accounts = this.db.prepare(`
             SELECT 
                 accounts.*,
-                bank_connections.bank_abr,
-                bank_connections.bank_name
+                bank_connections.bank_abr AS bankAbr,
+                bank_connections.bank_name AS bankName
             FROM accounts
             LEFT JOIN bank_connections
                 ON accounts.connection_id = bank_connections.id
@@ -291,6 +319,12 @@ export class DatabaseHandler {
         return this.db.prepare(`
             SELECT * FROM accounts WHERE connection_id = ? AND account_number = ?;
         `).get(connectionId, accountNumber);
+    }
+
+    getAccountBySimplefinId(simplefinId) {
+        return this.db.prepare(`
+            SELECT * FROM accounts WHERE simplefin_id = ?;
+        `).get(simplefinId);
     }
 
     saveTransaction(transaction) {
@@ -640,7 +674,9 @@ export class DatabaseHandler {
             for (const transaction of transactions) {
                 this.saveTransaction({ ...transaction, accountId });
             }
-            this.setLastFetchedAt(accountId, fetchedAt);
+            if (fetchedAt) {
+                this.setLastFetchedAt(accountId, fetchedAt);
+            }
         });
         commit();
     }

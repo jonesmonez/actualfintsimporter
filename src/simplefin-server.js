@@ -1,8 +1,8 @@
 import { DatabaseHandler } from './db.js';
-import { fetchAllBanks } from './bank-sync.js';
+import { discoverAccounts, syncSelectedAccount } from './bank-sync.js';
 import { createSimpleFinHttpServer } from './simplefin-http.js';
-import { RefreshManager } from './refresh-manager.js';
 import { getSecret } from './secrets.js';
+import { SyncCoordinator } from './sync-coordinator.js';
 
 import { getLogger } from './logger.js';
 const log = getLogger('simplefin-sever');
@@ -29,20 +29,28 @@ export async function runSimpleFin() {
 
 
     const port = positiveIntegerEnv('SIMPLEFIN_PORT', 3001, 1, 65535);
-    const minAgeSeconds = positiveIntegerEnv('SIMPLEFIN_REFRESH_MIN_AGE_SECONDS', 60, 0);
     const waitMs = positiveIntegerEnv('SIMPLEFIN_ON_DEMAND_WAIT_MS', 20000, 1, 300000);
     const host = process.env.SIMPLEFIN_HOST || '127.0.0.1';
     if ((process.env.BANKS ?? '').split(',').every(bank => !bank.trim())) {
         throw new Error('BANKS must contain at least one configured bank');
     }
 
+    const coordinator = new SyncCoordinator();
     const db = new DatabaseHandler(process.env.DB_PATH || 'data/bank.db');
-    let refresh;
     let server;
 
+    const syncSelected = async (simplefinId) => {
+        const account = db.getAccountBySimplefinId(simplefinId);
+        if (!account) {
+            throw new Error(`Account with SimpleFin UUID ${simplefinId} does not exist`);
+        }
+        const connectionId = account.connection_id;
+        return coordinator.schedule(connectionId, () => syncSelectedAccount(db, simplefinId));
+    }
+
+    await discoverAccounts(db);
     try {
-        refresh = new RefreshManager(() => fetchAllBanks(db), { minAgeMs: minAgeSeconds * 1000 });
-        server = createSimpleFinHttpServer({ db, refresh, publicUrl, adminToken, waitMs });
+        server = createSimpleFinHttpServer({ db, syncSelected, publicUrl, adminToken, waitMs });
         await new Promise((resolve, reject) => {
             function onListening() { server.off('error', onError); resolve(); }
             function onError(error) { server.off('listening', onListening); reject(error); }

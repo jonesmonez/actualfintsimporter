@@ -54,18 +54,25 @@ function getFetchPeriod(
     return { from, to };
 }
 
-export async function syncFinTSAccount(db, fin, account) {
+export async function syncAccount(db, fin, account) {
     const connectionId = db.getBankConnectionId(fin);
-    const accountNumber = account.accountNumber;
-    const balanceResponse = await fin.getBalance(account);
-    const reportedBalance = balanceResponse?.balance?.balance;
-    if (typeof reportedBalance !== 'number' || !Number.isFinite(reportedBalance)) {
-        throw new Error(`Bank returned no numeric balance for ${accountNumber}`);
+    let reportedBalance;
+    try {
+        const balanceResponse = await fin.getBalance(account);
+        reportedBalance = balanceResponse?.balance?.balance;
+        if (typeof reportedBalance !== 'number' || !Number.isFinite(reportedBalance)) {
+            log.error(`Bank returned no numeric balance for ${account.accountNumber}, skipping it`);
+            return;
+        }
+    } catch (error) {
+        log.error(`Fetching Bank informations returned with an error for ${account.accountNumber}, skipping it`, error);
+        return;
     }
+    log.debug(`  Got balance of ${reportedBalance}`);
 
     db.saveAccount({
         connection_id: connectionId,
-        account_number: accountNumber,
+        account_number: account.accountNumber,
         iban: account.iban,
         name: account.product ?? account.iban,
         actual_id: null,
@@ -83,10 +90,18 @@ export async function syncFinTSAccount(db, fin, account) {
         is_sepa_account: account.isSepaAccount ?? null,
         bic: account.bic ?? null,
     });
+}
+
+export async function syncFinTSAccount(db, fin, account) {
+    const connectionId = db.getBankConnectionId(fin);
+    const accountNumber = account.accountNumber;
+    log.debug(`Syncing ${connectionId}:${accountNumber}`);
+    await syncAccount(db, fin, account);
 
     const localAccount = db.getAccount(connectionId, accountNumber);
     const lastFetchedAt = db.getLastFetchedAt(localAccount.id);
     const { from, to } = getFetchPeriod(lastFetchedAt);
+    log.debug(`Fetching from ${from.toISOString()} to ${to.toISOString()}, last fetched: ${lastFetchedAt}`);
     const response = await fin.getStatements(account, from, to);
     if (!Array.isArray(response?.statements)) {
         throw new Error(`Missing statements for ${accountNumber}`);
@@ -132,11 +147,30 @@ export async function syncFinTSAccount(db, fin, account) {
             };
         });
 
-    db.saveFetchedTransactions(localAccount.id, transactions, to.toISOString());
+    db.saveFetchedTransactions(localAccount.id, transactions, transactions.length > 0 ? to.toISOString() : null);
     log.info(`Fetched ${transactions.length} bank transactions for ${accountNumber}`);
 }
 
-export async function fetchAllBanks(db) {
+export async function discoverAccounts(db) {
+    for (const bank of getBanks()) {
+        log.info(`Discovering accounts for ${bank}`);
+        const config = getCredentials(bank);
+        db.createBankConnection(config);
+        const fin = new FinTSHandler(
+            config,
+            bankingInfo => db.updateBankingInformation(config, bankingInfo)
+        );
+        await fin.connect(db.getBankingInformation(config));
+        db.updateBankNameForBankConnection(config, fin.getBank());
+        log.debug(`Discovering accounts for ${bank}`)
+        for (const account of await fin.getAccounts()) {
+            log.debug(`Checking account ${account.accountNumber}`)
+            await syncAccount(db, fin, account);
+        }
+    }
+}
+
+function getBanks() {
     const banks = (process.env.BANKS ?? '')
         .split(',')
         .map(bank => bank.trim())
@@ -145,10 +179,14 @@ export async function fetchAllBanks(db) {
     if (banks.length === 0) {
         throw new Error('BANKS must contain at least one bank');
     }
+    return banks;
+}
 
-    for (const name of banks) {
-        log.info(`Fetching information for ${name}`);
-        const config = getCredentials(name);
+export async function fetchAllBanks(db) {
+    const banks = getBanks();
+    for (const bank of banks) {
+        log.info(`Fetching information for ${bank}`);
+        const config = getCredentials(bank);
         db.createBankConnection(config);
         const fin = new FinTSHandler(
             config,
@@ -160,4 +198,26 @@ export async function fetchAllBanks(db) {
             await syncFinTSAccount(db, fin, account);
         }
     }
+}
+
+export async function syncSelectedAccount(db, simplefinId) {
+    const account = db.getAccountBySimplefinId(simplefinId);
+    if (!account) {
+        throw new Error(`Account with UUID ${simplefinId} does not exist in the Database`);
+    }
+    const bankConnection = db.getBankConnectionByAccount(account);
+    log.info(`Fetching information for ${bankConnection.bankAbr}`);
+    const config = getCredentials(bankConnection.bankAbr);
+    const fin = new FinTSHandler(
+        config,
+        bankingInfo => db.updateBankingInformation(config, bankingInfo)
+    );
+    await fin.connect(db.getBankingInformation(config));
+    db.updateBankNameForBankConnection(config, fin.getBank());
+    const fintsAccounts = await fin.getAccounts();
+    const matchingAccount = fintsAccounts.find(fintsAccount => fintsAccount.accountNumber === account.account_number);
+    if (!matchingAccount) {
+        throw new Error(`Your bankconnection does not expose a matching account for the account number ${account.account_number}`);
+    }
+    await syncFinTSAccount(db, fin, matchingAccount);
 }

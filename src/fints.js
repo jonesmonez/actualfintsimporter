@@ -36,7 +36,7 @@ export class FinTSHandler {
         this.client = null;
         this.#config = null;
 
-        this.bank_name = null;
+        this.bankName = null;
 
         this.tanMethod = null;
         this.tanFirstPollWaitMs = 2000;
@@ -80,7 +80,7 @@ export class FinTSHandler {
             'Login'
         );
 
-        this.bank_name = this.getBank();
+        this.bankName = this.getBank();
 
         log.info('FinTS connected')
 
@@ -110,7 +110,7 @@ export class FinTSHandler {
         );
 
         const decoupled = method.decoupled;
-        this.tanFirstPollWaitMs = (decoupled?.waitingSecondsBeforeFirstStatusRequest ?? method.waitBeforeNextPoll ?? 2) * 1000;
+        this.tanFirstPollWaitMs = (decoupled?.waitingSecondsBeforeFirstStatusRequest ?? method.waitBeforeNextPoll ?? 4) * 1000;
         this.tanPollIntervalMs = (decoupled?.waitingSecondsBetweenStatusRequests ?? method.waitBeforeNextPoll ?? 2) * 1000;
         this.tanMaxPolls = decoupled?.maxStatusRequests ?? method.decoupledMaxPollNumber ?? 150;
     }
@@ -167,9 +167,6 @@ export class FinTSHandler {
         log.info(tanText);
 
         for (let poll = 1; poll <= this.tanMaxPolls; poll++) {
-            const progress = Math.round((poll / this.tanMaxPolls) * 100);
-            const barLength = 40;
-
             log.progress('Waiting for TAN approval', poll, this.tanMaxPolls);
 
             await sleep(poll === 1 ? this.tanFirstPollWaitMs : this.tanPollIntervalMs);

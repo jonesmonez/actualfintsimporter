@@ -9,15 +9,15 @@ const log = getLogger('api-push');
 async function ensureAccountGroup(db, bankConnecion) {
     const groups = await api.getAccountGroups();
     const matches = groups.filter(group =>
-        group.name === bankConnecion.bank_name
+        group.name === bankConnecion.bankName
     );
 
     if (matches.length > 1) {
-        throw new Error(`Amiguous account grop name: ${bankConnecion.bank_name}`);
+        throw new Error(`Amiguous account grop name: ${bankConnecion.bankName}`);
     }
     const groupId = matches.length
         ? matches[0].id
-        : await api.createAccountGroup({ name: bankConnecion.bank_name });
+        : await api.createAccountGroup({ name: bankConnecion.bankName });
 
     if (bankConnecion.account_group_id !== groupId) {
         db.updateGroupIdForBankConnection(bankConnecion, groupId);
@@ -45,7 +45,7 @@ async function ensureActualAccount(
     }
 
     const suffix = fintsAccount.iban.slice(-4);
-    const accountName = `${fintsAccount.name} (${fintsAccount.bank_abr} • ${suffix})`;
+    const accountName = `${fintsAccount.name} (${fintsAccount.bankAbr} • ${suffix})`;
 
     const matches = actualAccounts.filter(account =>
         account.name === accountName &&
