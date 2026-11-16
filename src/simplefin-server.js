@@ -63,7 +63,7 @@ export async function runSimpleFin() {
         throw error;
     }
     server.on('error', error => log.error('SimpleFIN HTTP server error:', error));
-    log.info(`SimpleFIN v1 bridge listening on ${host}:${port}`);
+    log.info(`SimpleFIN v1/v2 bridge listening on ${host}:${port}`);
     log.info('FinTS refresh: on-demand only; no direct imports to Actual');
     if (url.protocol === 'http:') {
         log.warn('HTTP mode enabled: only use on a private, trusted Docker network. Never publish this port publicly.');

@@ -36,15 +36,15 @@ function epochBoundary(params, name) {
     return number;
 }
 
-export function makeAccountSet(db, params, bridgeUrl) {
+export function makeAccountSet(db, params, bridgeUrl, version) {
     const start = epochBoundary(params, 'start-date');
     const end = epochBoundary(params, 'end-date');
     if (start != null && end != null && end < start) {
         throw new RangeError('end-date must be after start-date');
     }
 
-    const ids = params.getAll('account');
-    const includedIds = ids.length ? new Set(ids) : null;
+    const accountIds = params.getAll('account');
+    const includedIds = accountIds.length ? new Set(accountIds) : null;
     const onlyBalances = params.get('balances-only') === '1';
     const includePending = params.get('pending') === '1';
     const accounts = db.getAccounts()
@@ -62,20 +62,58 @@ export function makeAccountSet(db, params, bridgeUrl) {
                 })
                 .sort((a, b) => (a.posted || a.transacted_at) - (b.posted || b.transacted_at));
 
-            return {
-                org: {
-                    name: account.bankName || account.bankAbr || 'FinTS bank',
-                    id: `fints-bank-${account.connection_id}`,
-                    'sfin-url': bridgeUrl,
-                },
-                id: account.simplefin_id,
-                name: `${account.name} (${account.bankAbr} • ${String(account.iban).slice(-4)})`,
-                currency: account.currency,
-                balance: centsToDecimal(account.balance),
-                'balance-date': Number.isFinite(cachedDate) ? cachedDate : Math.floor(Date.now() / 1000),
-                transactions,
-            };
+            if (version === '1') {
+                return {
+                    id: account.simplefin_id,
+                    name: `${account.name} (${account.bankAbr} • ${String(account.iban).slice(-4)})`,
+                    org: {
+                        name: account.bankName || account.bankAbr || 'FinTS bank',
+                        id: toConnectionId(account.connection_id),
+                        'sfin-url': bridgeUrl,
+                    },
+                    currency: account.currency,
+                    balance: centsToDecimal(account.balance),
+                    'balance-date': Number.isFinite(cachedDate) ? cachedDate : Math.floor(Date.now() / 1000),
+                    transactions,
+                };
+            } else if (version === '2') {
+                return {
+                    id: account.simplefin_id,
+                    name: `${account.name} (${account.bankAbr} • ${String(account.iban).slice(-4)})`,
+                    'conn_id': toConnectionId(account.connection_id),
+                    currency: account.currency,
+                    balance: centsToDecimal(account.balance),
+                    'balance-date': Number.isFinite(cachedDate) ? cachedDate : Math.floor(Date.now() / 1000),
+                    transactions,
+                };
+            }
         });
 
-    return { errors: [], accounts };
+    if (version === '1') {
+        return { errors: [], accounts };
+    } else if (version === '2') {
+        const connections = makeConnectionSet(db, accountIds, bridgeUrl);
+        return { errlist: [], connections, accounts };
+    }
+}
+
+function makeConnectionSet(db, accountIds, bridgeUrl) {
+    const includedIds = accountIds.length ? new Set(accountIds) : null;
+    const connections = db.getAccounts()
+        .filter(account => !includedIds || includedIds.has(account.simplefin_id))
+        .map(account => {
+            const connection = db.getBankConnectionByAccount(account);
+            return {
+                'conn_id': toConnectionId(connection.id),
+                name: connection.bankName ?? connection.bankAbr,
+                'org_id': connection.blz,
+                'sfin_url': bridgeUrl,
+            }
+        });
+
+    return [...new Map(connections.map(connection => [connection.conn_id, connection])).values()];
+}
+
+function toConnectionId(id) {
+    return `fints-bank-${id}`;
 }

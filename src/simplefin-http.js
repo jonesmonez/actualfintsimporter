@@ -65,7 +65,7 @@ export function createSimpleFinHttpServer({ db, syncSelected, publicUrl, adminTo
             }
 
             if (req.method === 'GET' && path === '/simplefin/info') {
-                return reply(res, 200, JSON.stringify({ versions: ['1.0'] }), 'application/json; charset=utf-8');
+                return reply(res, 200, JSON.stringify({ versions: ['1.0', '2.0'] }), 'application/json; charset=utf-8');
             }
 
             if (req.method === 'GET' && path === '/simplefin/create') {
@@ -113,10 +113,15 @@ export function createSimpleFinHttpServer({ db, syncSelected, publicUrl, adminTo
             if (req.method === 'GET' && path === '/simplefin/accounts') {
                 if (!isAuthorized(res, req, db)) return;
 
+                const version = url.searchParams.get('version') ?? '1';
+                if (version !== '1' && version !== '2') {
+                    return reply(res, 400, 'Unsupported SimpleFIN version');
+                }
+
                 const onlyBalance = url.searchParams.get('balances-only') === '1';
 
                 if (onlyBalance) {
-                    const response = makeAccountSet(db, url.searchParams, publicUrl);
+                    const response = makeAccountSet(db, url.searchParams, publicUrl, version);
                     return reply(
                         res, 200, JSON.stringify(response), 'application/json; charset=utf-8'
                     );
@@ -129,12 +134,20 @@ export function createSimpleFinHttpServer({ db, syncSelected, publicUrl, adminTo
 
                 const promises = accountIds.map(id => syncSelected(id));
                 const results = await Promise.allSettled(promises);
-                const response = makeAccountSet(db, url.searchParams, publicUrl);
-                results.forEach((res, index) => {
-                    if (res.status === 'rejected') {
+                const response = makeAccountSet(db, url.searchParams, publicUrl, version);
+                results.forEach((result, index) => {
+                    if (result.status === 'rejected') {
                         const id = accountIds[index];
-                        log.error(`Failed to synchronize account ${id}`, res.reason);
-                        response.errors.push(`Failed to synchronize account ${id}. Cached data may be outdated.`);
+                        log.error(`Failed to synchronize account ${id}`, result.reason);
+                        if (version == '1') {
+                            response.errors.push(`Failed to synchronize account ${id}. Cached data may be outdated.`);
+                        } else if (version === '2') {
+                            response.errlist.push({
+                                code: 'act.failed',
+                                msg: `Failed to synchronize account ${id}. Cached data may be outdated.`,
+                                account_id: id,
+                            });
+                        }
                     }
                 })
 
