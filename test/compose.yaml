@@ -1,0 +1,78 @@
+services:
+  actual:
+    container_name: actual
+    image: docker.io/actualbudget/actual-server:latest
+    ports:
+      - '5006:5006'
+    volumes:
+      - ../actual-data:/data
+    environment:
+      ACTUAL_SIMPLEFIN_ALLOWED_NETWORKS: "172.50.50.10"
+    healthcheck:
+      test: ['CMD-SHELL', 'node scripts/health-check.js']
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - actual-network
+
+  actualfintsimporter:
+    container_name: actualfintsimporter
+    image: actualfintsimporter:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - actual
+    env_file:
+      - ../.env
+    volumes:
+      - ../app.env:/run/secrets/app.env:ro
+      - ../data:/app/data
+    networks:
+      actual-network:
+        ipv4_address: 172.50.50.10
+    develop:
+      watch:
+        - action: sync+restart
+          path: ../src
+          target: /app
+          initial_sync: true
+          ignore:
+            - test/
+        - action: rebuild
+          path: ../package.json
+        - action: rebuild
+          path: ../package-lock.json
+        - action: rebuild
+          path: ../Dockerfile
+
+  caddy:
+    container_name: actual-caddy
+    image: caddy:2-alpine
+    ports:
+      - "127.0.0.1:8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - actual
+    restart: unless-stopped
+    networks:
+      - actual-network
+
+networks:
+  actual-network:
+    name: actual-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.50.50.0/24
+
+volumes:
+  caddy_data:
+  caddy_config:

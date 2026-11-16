@@ -262,6 +262,12 @@ Copy the **SimpleFIN setup token** returned by the command. Treat it like a pass
 > [!NOTE]
 > The generated setup token is only valid for one hour and can only be claimed once.
 
+## Development
+
+Contributions and improvements are welcome! The repository includes a Docker Compose development environment with Actual Budget, the FinTS importer, and Caddy. Docker Compose Watch allows you to develop and test changes without rebuilding the Docker image after every source-code modification.
+
+For instructions on setting up the development environment, running tests, and resetting development data, see the [Development Guide](docs/developing.md).
+
 ## Troubleshooting
 
 **Actual cannot connect to the SimpleFIN server**

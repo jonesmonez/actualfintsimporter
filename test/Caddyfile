@@ -1,0 +1,4 @@
+localhost {
+    tls internal
+    reverse_proxy actual:5006
+}
