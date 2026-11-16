@@ -26,4 +26,8 @@ export class SyncCoordinator {
         current.then(cleanup, cleanup);
         return current;
     }
+
+    async waitForIdle() {
+        await Promise.allSettled([...this.queues.values()]);
+    }
 }

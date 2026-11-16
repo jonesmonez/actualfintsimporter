@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { makeAccountSet } from './simplefin-protocol.js';
-import { waitForRefresh } from './refresh-manager.js';
 
 import { getLogger } from './logger.js';
 const log = getLogger('simplefin-http');

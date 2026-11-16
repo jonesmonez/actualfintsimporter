@@ -75,9 +75,7 @@ export async function runSimpleFin() {
         shuttingDown = true;
 
         await new Promise(resolve => server.close(resolve));
-        if (refresh.inFlight) {
-            await refresh.inFlight.catch(() => { });
-        }
+        await coordinator.waitForIdle();
         db.close();
     }
     process.once('SIGINT', () => { void shutdown().then(() => { process.exitCode = 0; }); });
